@@ -1,6 +1,8 @@
-glove.6B.*
-dataset.*
-GoogleNews-vectors-negative300.bin*
+glove*
+dataset*
+GoogleNews*
+lexvec*
 jokes.csv
 question-answer-jokes.zip
+
 

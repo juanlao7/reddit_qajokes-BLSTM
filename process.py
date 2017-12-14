@@ -21,7 +21,7 @@ import gensim
 import re
 
 ACTIVATION_FUNCTION = 'tanh'
-EPOCHS = 200
+EPOCHS = 2
 BATCH_SIZE = 100
 LEARNING_RATE = 0.001
 LSTM_UNITS = 128
@@ -141,6 +141,19 @@ def loadJokes():
     f.close()
     return x, y
 
+def fileToEmbeddings(filePath):
+    f = open(filePath)
+    embeddings_word2vector = {}
+    
+    for line in f:
+        values = line.split()
+        word = values[0]
+        coefs = np.asarray(values[1:], dtype='float32')
+        embeddings_word2vector[word] = coefs
+    
+    f.close()
+    return embeddings_word2vector
+
 def loadData(config):
     source = config['embedding_source']
     embeddings_size = config['embedding_size']
@@ -150,16 +163,9 @@ def loadData(config):
     print 'Loading embeddings...'
     
     if source == 'glove':
-        f = open(os.path.join('.', 'glove.6B.' + str(embeddings_size) + 'd.txt'))
-        embeddings_word2vector = {}
-        
-        for line in f:
-            values = line.split()
-            word = values[0]
-            coefs = np.asarray(values[1:], dtype='float32')
-            embeddings_word2vector[word] = coefs
-        
-        f.close()
+        embeddings_word2vector = fileToEmbeddings('glove.6B.' + str(embeddings_size) + 'd.txt')
+    elif source == 'lexvec':
+        embeddings_word2vector = fileToEmbeddings('lexvec.commoncrawl.' + str(embeddings_size) + 'd.W.pos.vectors')
     elif source == 'word2vec':
         model = gensim.models.KeyedVectors.load_word2vec_format('GoogleNews-vectors-negative' + str(embeddings_size) + '.bin', binary=True)
         embeddings_word2vector = {}

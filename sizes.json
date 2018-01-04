@@ -1,0 +1,22 @@
+{
+  "50 dimensions": {
+    "embedding_source": "glove",
+    "embedding_size": 50,
+    "tokens": "extra"
+  },
+  "100 dimensions": {
+    "embedding_source": "glove",
+    "embedding_size": 100,
+    "tokens": "extra"
+  },
+  "200 dimensions": {
+    "embedding_source": "glove",
+    "embedding_size": 200,
+    "tokens": "extra"
+  },
+  "300 dimensions": {
+    "embedding_source": "glove",
+    "embedding_size": 300,
+    "tokens": "extra"
+  }
+}

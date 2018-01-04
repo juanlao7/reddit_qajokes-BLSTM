@@ -1,0 +1,12 @@
+{
+  "400,000 words": {
+    "embedding_source": "glove",
+    "embedding_size": 300,
+    "tokens": "extra"
+  },
+  "1.9 million words": {
+    "embedding_source": "glove42",
+    "embedding_size": 300,
+    "tokens": "extra"
+  }
+}

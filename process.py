@@ -14,20 +14,23 @@ import matplotlib.pyplot as plt
 from keras.utils import np_utils
 import csv
 from keras.models import load_model
-from sklearn.svm.libsvm import predict
 from sklearn.neighbors import KNeighborsClassifier
 from sets import Set
 import gensim
 import re
+import copy
 
 ACTIVATION_FUNCTION = 'tanh'
-EPOCHS = 2
+EPOCHS = 200
 BATCH_SIZE = 100
 LEARNING_RATE = 0.001
 LSTM_UNITS = 128
 MAX_LENGTH = 20
 REMOVE_UNEXISTENT = False
 SHOW_PADDINGS = True
+EXTRA_DIMENSION_PADDING_THRESHOLD = 0.2
+SAMPLE_JOKES = 21029
+ANALYSIS_JOKES = 50
 
 def plotOptions(results, title, ylabel, keys):
     plt.gca().set_color_cycle(None)
@@ -62,10 +65,8 @@ def getText(sequence, knn, config):
         recalls = []
         
         for embedding in sequence:
-            if embedding[-1] > 0.5:
+            if embedding[-1] > EXTRA_DIMENSION_PADDING_THRESHOLD:
                 recalls.append('')
-            elif embedding[-1] < -0.5:
-                recalls.append('*')
             else:
                 recalls.append(knn.predict([embedding[:-1]])[0])
     else:
@@ -80,7 +81,7 @@ def getClosest(embedding, knn, k, keys):
     return [keys[i] for i in knn.kneighbors([embedding], k, False)[0]]
 
 def prepareSequence(sequence):
-    sequence = ''.join(ch for ch in sequence.lower() if ch.isalnum() or ch == '.' or ch == ' ')
+    sequence = ''.join(ch for ch in sequence.lower() if ch.isalnum() or ch == ' ')
     preparedSequence = sequence.split(' ')
     
     for word in preparedSequence:
@@ -89,7 +90,7 @@ def prepareSequence(sequence):
     
     return preparedSequence
 
-def embedSequence(sequence, sequence_size, datasetWords, embeddings_word2vector, padding, unknown):
+def embedSequence(sequence, sequence_size, datasetWords, embeddings_word2vector, padding):
     sequenceParsed = []
     
     for j in xrange(len(sequence)):
@@ -98,21 +99,19 @@ def embedSequence(sequence, sequence_size, datasetWords, embeddings_word2vector,
         
         if word in embeddings_word2vector:
             sequenceParsed.append(embeddings_word2vector[word])
-        elif unknown is None:
-            return None
         else:
-            sequenceParsed.append(unknown)
+            return None
     
     return np.array(sequenceParsed + [padding] * (sequence_size - len(sequenceParsed)))
 
-def embedDataset(x, y, x_size, y_size, embeddings_word2vector, padding, unknown):
+def embedDataset(x, y, x_size, y_size, embeddings_word2vector, padding):
     datasetWords = Set()
     xParsed = []
     yParsed = []
     
     for i in xrange(len(x)):
-        input = embedSequence(x[i], x_size, datasetWords, embeddings_word2vector, padding, unknown)
-        output = embedSequence(y[i], y_size, datasetWords, embeddings_word2vector, padding, unknown)
+        input = embedSequence(x[i], x_size, datasetWords, embeddings_word2vector, padding)
+        output = embedSequence(y[i], y_size, datasetWords, embeddings_word2vector, padding)
         
         if input is None or output is None:
             continue
@@ -157,13 +156,14 @@ def fileToEmbeddings(filePath):
 def loadData(config):
     source = config['embedding_source']
     embeddings_size = config['embedding_size']
-    remove_unknown = config['remove_unknown']
     
     # Loading embeddings
     print 'Loading embeddings...'
     
     if source == 'glove':
         embeddings_word2vector = fileToEmbeddings('glove.6B.' + str(embeddings_size) + 'd.txt')
+    elif source == 'glove42':
+        embeddings_word2vector = fileToEmbeddings('glove.42B.' + str(embeddings_size) + 'd.txt')
     elif source == 'lexvec':
         embeddings_word2vector = fileToEmbeddings('lexvec.commoncrawl.' + str(embeddings_size) + 'd.W.pos.vectors')
     elif source == 'word2vec':
@@ -175,6 +175,7 @@ def loadData(config):
     else:
         raise Exception('Unknown embedding source')
     
+    print len(embeddings_word2vector), 'word embeddings.'
     print 'Preprocessing each word of the embeddings dictionary...'
     
     for word in embeddings_word2vector.keys():
@@ -193,11 +194,10 @@ def loadData(config):
             
             del embeddings_word2vector[word]
     
-    # Defining padding and unknown words.
+    # Defining the padding token.
     
-    if config['tokens'] == '1s-1s':
-        padding = np.ones(embeddings_size)
-        unknown = np.full(embeddings_size, -1.0)
+    if config['tokens'] == '0s':
+        padding = np.zeros(embeddings_size)
     elif config['tokens'].startswith('stdevs'):
         multiplier = float(config['tokens'][len('stdevs'):])
         
@@ -205,7 +205,6 @@ def loadData(config):
         stdev = np.std(embeddings_word2vector.values(), axis=0)
         
         padding = mean + stdev * multiplier
-        unknown = mean - stdev * multiplier
     elif config['tokens'] == 'extra':
         embeddings_size += 1
         
@@ -218,14 +217,8 @@ def loadData(config):
         
         padding = np.zeros(embeddings_size)
         padding[-1] = 1.0
-        
-        unknown = np.zeros(embeddings_size)
-        unknown[-1] = -1.0 
     else:
         raise Exception('Unknown token encoding.')
-    
-    if remove_unknown:
-        unknown = None
     
     # Loading jokes data set
     
@@ -235,10 +228,10 @@ def loadData(config):
     y_size = max([len(i) for i in y])
     
     print 'Embedding jokes...'
-    x, y, datasetWords = embedDataset(x, y, x_size, y_size, embeddings_word2vector, padding, unknown)
+    x, y, datasetWords = embedDataset(x, y, x_size, y_size, embeddings_word2vector, padding)
     
     if REMOVE_UNEXISTENT:
-        print 'Removing unexistent words from the embeddings dictionary...'
+        print 'Removing unexisting words from the embeddings dictionary...'
         
         for word in embeddings_word2vector.keys():
             if word not in datasetWords:
@@ -246,11 +239,39 @@ def loadData(config):
     
     embeddings_word2vector[''] = padding
     
-    if unknown is not None:
-        embeddings_word2vector['*'] = unknown
-    
     print len(x), 'jokes loaded; x_size =', x_size, '; y_size =', y_size
     return x, y, embeddings_word2vector
+
+def analyzeTokens(y, knn, config, predictions):
+    totalWrongPaddings = []
+    
+    for i in xrange(ANALYSIS_JOKES):
+        actualAnswer = getText(y[i], knn, config)
+        modelAnswer = getText(predictions[i], knn, config)
+        
+        wrongPaddings = 0
+        
+        for j in xrange(y.shape[1]):
+            if (modelAnswer[j] == '_' or actualAnswer[j] == '_') and modelAnswer[j] != actualAnswer[j]:
+                wrongPaddings += 1
+                
+        totalWrongPaddings.append(wrongPaddings)
+    
+    return totalWrongPaddings
+
+def vectorInSequence(vector, sequence):
+    for elementIndex in xrange(sequence.shape[0]):
+        if np.array_equal(vector, sequence[elementIndex, :]):
+            return True
+    
+    return False
+
+def meetsFilter(question, answer, testFilter):
+    for embeddedFilter in testFilter:
+        if not vectorInSequence(embeddedFilter, question) and not vectorInSequence(embeddedFilter, answer):
+            return False
+    
+    return True
 
 # Initialization
 parser = argparse.ArgumentParser()
@@ -317,19 +338,17 @@ for configName in configs:
     
     # Trying the model
     print 'Preparing KNN for recalling', len(embeddings_word2vector), 'words...'
+    originalEmbeddings_word2vector = copy.deepcopy(embeddings_word2vector)
     
     padding = embeddings_word2vector['']
-    unknown = embeddings_word2vector['*']
     
     if config['tokens'] == 'extra':
-        # We remove the padding and unknown tokens from the embedding space, since we recall them with a threshold on the extra dimension.
+        # We remove the padding tokens from the embedding space, since we recall them with a threshold on the extra dimension.
         del embeddings_word2vector['']
-        del embeddings_word2vector['*']
         
         # We remove the extra dimension
         values = [embedding[:-1] for embedding in embeddings_word2vector.values()]
         padding = padding[:-1]
-        unknown = unknown[:-1]
     else:
         values = embeddings_word2vector.values()
     
@@ -340,17 +359,67 @@ for configName in configs:
     
     print 'Closest words to the padding token:', getClosest(padding, knn, 5, keys)
     
-    if not config['remove_unknown']:
-        print 'Closest words to the unknown token:', getClosest(unknown, knn, 5, keys)
+    print 'Predicting the first', SAMPLE_JOKES, 'jokes...'
+    predictions = model.predict(x[:SAMPLE_JOKES])
+    accuracies = []
+    testFilter = config['test_filter'] if 'test_filter' in config else []
     
-    for i in xrange(10):
-        print i, ':', getText(x[i], knn, config) + '?'
-        print '    Actual answer:    ', getText(y[i], knn, config)
+    for i in xrange(len(testFilter)):
+        testFilter[i] = embeddings_word2vector[testFilter[i]]
+    
+    for it in xrange(SAMPLE_JOKES):
+        if meetsFilter(x[it], y[it], testFilter):
+            print it, ':', getText(x[it], knn, config) + '?'
+            
+            actualAnswer = getText(y[it], knn, config)
+            modelAnswer = getText(predictions[it], knn, config)
+            accuracy = len([i for i, j in zip(actualAnswer.split(), modelAnswer.split()) if i == j]) / float(y.shape[1])
+            
+            print '    Actual answer:    ', actualAnswer
+            print '    Model answer:     ', modelAnswer
+            print '    Accuracy:         ', round(accuracy * 100, 2), '%'
+            print
+            
+            accuracies.append(accuracy)
+    
+    print 'Global accuracy: ', np.mean(accuracies), '+-', np.std(accuracies)
+    
+    if args.config == 'tokens.json':
+        # This is an analysis only performed when comparing different tokens.
+        predictions = model.predict(x[:ANALYSIS_JOKES])
         
-        prediction = model.predict(np.reshape(x[i], (1, x.shape[1], x.shape[2])))[0]
-        print '    Model answer:     ', getText(prediction, knn, config)
+        if config['tokens'] == 'extra':
+            print 'Optimizing the thresholds for the extra dimension...'
+            
+            paddingResults = []
+            tests = [x / 100.0 for x in xrange(10, 95, 10)]
+            
+            for i in tests:
+                print 'Testing threshold', i
+                EXTRA_DIMENSION_PADDING_THRESHOLD = i
+                totalWrongPaddings = analyzeTokens(y, knn, config, predictions)
+                paddingResults.append(np.mean(totalWrongPaddings))
+            
+            EXTRA_DIMENSION_PADDING_THRESHOLD = tests[paddingResults.index(min(paddingResults))]
+            
+            print 'Optimal padding token threshold:', EXTRA_DIMENSION_PADDING_THRESHOLD
         
-        print
+        print 'Calculating wrong tokens...'
+        totalWrongPaddings = analyzeTokens(y, knn, config, predictions)
+        
+        print 'Token encoding:', config['tokens']
+        print 'Error on paddings:', np.mean(totalWrongPaddings), '+-', np.std(totalWrongPaddings)
+    
+    if 'interactive' in config and config['interactive']:
+        while True:
+            question = raw_input('Ask a question: ')
+            
+            if not question:
+                break
+                
+            questionVector = embedSequence(prepareSequence(question), x.shape[1], Set(), originalEmbeddings_word2vector, originalEmbeddings_word2vector[''])
+            prediction = model.predict(np.array([questionVector]))[0]
+            print getText(prediction, knn, config)
 
 print '### FINISH! ###'
 

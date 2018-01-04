@@ -1,0 +1,17 @@
+{
+  "GloVe": {
+    "embedding_source": "glove42",
+    "embedding_size": 300,
+    "tokens": "extra"
+  },
+  "word2vec": {
+    "embedding_source": "word2vec",
+    "embedding_size": 300,
+    "tokens": "extra"
+  },
+  "LexVec": {
+    "embedding_source": "lexvec",
+    "embedding_size": 300,
+    "tokens": "extra"
+  }
+}

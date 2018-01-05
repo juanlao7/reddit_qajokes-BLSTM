@@ -29,8 +29,9 @@ MAX_LENGTH = 20
 REMOVE_UNEXISTENT = False
 SHOW_PADDINGS = True
 EXTRA_DIMENSION_PADDING_THRESHOLD = 0.2
-SAMPLE_JOKES = 21029
-ANALYSIS_JOKES = 50
+SAMPLE_JOKES = 0
+ANALYSIS_JOKES = 0
+FAST = True
 
 def plotOptions(results, title, ylabel, keys):
     plt.gca().set_color_cycle(None)
@@ -288,7 +289,7 @@ for configName in configs:
     
     # Preparing the data
     
-    x, y, embeddings_word2vector = loadData(config)
+    x, y, embeddings_word2vector = loadData(config) if not FAST else None, None, None
     
     # Preparing the model.
     
@@ -337,89 +338,90 @@ for configName in configs:
         model.save(modelFileName)
     
     # Trying the model
-    print 'Preparing KNN for recalling', len(embeddings_word2vector), 'words...'
-    originalEmbeddings_word2vector = copy.deepcopy(embeddings_word2vector)
-    
-    padding = embeddings_word2vector['']
-    
-    if config['tokens'] == 'extra':
-        # We remove the padding tokens from the embedding space, since we recall them with a threshold on the extra dimension.
-        del embeddings_word2vector['']
+    if SAMPLE_JOKES > 0:
+        print 'Preparing KNN for recalling', len(embeddings_word2vector), 'words...'
+        originalEmbeddings_word2vector = copy.deepcopy(embeddings_word2vector)
         
-        # We remove the extra dimension
-        values = [embedding[:-1] for embedding in embeddings_word2vector.values()]
-        padding = padding[:-1]
-    else:
-        values = embeddings_word2vector.values()
-    
-    keys = embeddings_word2vector.keys()
-
-    knn = KNeighborsClassifier(n_neighbors=1)
-    knn.fit(values, keys)
-    
-    print 'Closest words to the padding token:', getClosest(padding, knn, 5, keys)
-    
-    print 'Predicting the first', SAMPLE_JOKES, 'jokes...'
-    predictions = model.predict(x[:SAMPLE_JOKES])
-    accuracies = []
-    testFilter = config['test_filter'] if 'test_filter' in config else []
-    
-    for i in xrange(len(testFilter)):
-        testFilter[i] = embeddings_word2vector[testFilter[i]]
-    
-    for it in xrange(SAMPLE_JOKES):
-        if meetsFilter(x[it], y[it], testFilter):
-            print it, ':', getText(x[it], knn, config) + '?'
-            
-            actualAnswer = getText(y[it], knn, config)
-            modelAnswer = getText(predictions[it], knn, config)
-            accuracy = len([i for i, j in zip(actualAnswer.split(), modelAnswer.split()) if i == j]) / float(y.shape[1])
-            
-            print '    Actual answer:    ', actualAnswer
-            print '    Model answer:     ', modelAnswer
-            print '    Accuracy:         ', round(accuracy * 100, 2), '%'
-            print
-            
-            accuracies.append(accuracy)
-    
-    print 'Global accuracy: ', np.mean(accuracies), '+-', np.std(accuracies)
-    
-    if args.config == 'tokens.json':
-        # This is an analysis only performed when comparing different tokens.
-        predictions = model.predict(x[:ANALYSIS_JOKES])
+        padding = embeddings_word2vector['']
         
         if config['tokens'] == 'extra':
-            print 'Optimizing the thresholds for the extra dimension...'
+            # We remove the padding tokens from the embedding space, since we recall them with a threshold on the extra dimension.
+            del embeddings_word2vector['']
             
-            paddingResults = []
-            tests = [x / 100.0 for x in xrange(10, 95, 10)]
-            
-            for i in tests:
-                print 'Testing threshold', i
-                EXTRA_DIMENSION_PADDING_THRESHOLD = i
-                totalWrongPaddings = analyzeTokens(y, knn, config, predictions)
-                paddingResults.append(np.mean(totalWrongPaddings))
-            
-            EXTRA_DIMENSION_PADDING_THRESHOLD = tests[paddingResults.index(min(paddingResults))]
-            
-            print 'Optimal padding token threshold:', EXTRA_DIMENSION_PADDING_THRESHOLD
+            # We remove the extra dimension
+            values = [embedding[:-1] for embedding in embeddings_word2vector.values()]
+            padding = padding[:-1]
+        else:
+            values = embeddings_word2vector.values()
         
-        print 'Calculating wrong tokens...'
-        totalWrongPaddings = analyzeTokens(y, knn, config, predictions)
-        
-        print 'Token encoding:', config['tokens']
-        print 'Error on paddings:', np.mean(totalWrongPaddings), '+-', np.std(totalWrongPaddings)
+        keys = embeddings_word2vector.keys()
     
-    if 'interactive' in config and config['interactive']:
-        while True:
-            question = raw_input('Ask a question: ')
-            
-            if not question:
-                break
+        knn = KNeighborsClassifier(n_neighbors=1)
+        knn.fit(values, keys)
+        
+        print 'Closest words to the padding token:', getClosest(padding, knn, 5, keys)
+    
+        print 'Predicting the first', SAMPLE_JOKES, 'jokes...'
+        predictions = model.predict(x[:SAMPLE_JOKES])
+        accuracies = []
+        testFilter = config['test_filter'] if 'test_filter' in config else []
+        
+        for i in xrange(len(testFilter)):
+            testFilter[i] = embeddings_word2vector[testFilter[i]]
+        
+        for it in xrange(SAMPLE_JOKES):
+            if meetsFilter(x[it], y[it], testFilter):
+                print it, ':', getText(x[it], knn, config) + '?'
                 
-            questionVector = embedSequence(prepareSequence(question), x.shape[1], Set(), originalEmbeddings_word2vector, originalEmbeddings_word2vector[''])
-            prediction = model.predict(np.array([questionVector]))[0]
-            print getText(prediction, knn, config)
+                actualAnswer = getText(y[it], knn, config)
+                modelAnswer = getText(predictions[it], knn, config)
+                accuracy = len([i for i, j in zip(actualAnswer.split(), modelAnswer.split()) if i == j]) / float(y.shape[1])
+                
+                print '    Actual answer:    ', actualAnswer
+                print '    Model answer:     ', modelAnswer
+                print '    Accuracy:         ', round(accuracy * 100, 2), '%'
+                print
+                
+                accuracies.append(accuracy)
+        
+        print 'Global accuracy: ', np.mean(accuracies), '+-', np.std(accuracies)
+    
+        if args.config == 'tokens.json' and ANALYSIS_JOKES > 0:
+            # This is an analysis only performed when comparing different tokens.
+            predictions = model.predict(x[:ANALYSIS_JOKES])
+            
+            if config['tokens'] == 'extra':
+                print 'Optimizing the thresholds for the extra dimension...'
+                
+                paddingResults = []
+                tests = [x / 100.0 for x in xrange(10, 95, 10)]
+                
+                for i in tests:
+                    print 'Testing threshold', i
+                    EXTRA_DIMENSION_PADDING_THRESHOLD = i
+                    totalWrongPaddings = analyzeTokens(y, knn, config, predictions)
+                    paddingResults.append(np.mean(totalWrongPaddings))
+                
+                EXTRA_DIMENSION_PADDING_THRESHOLD = tests[paddingResults.index(min(paddingResults))]
+                
+                print 'Optimal padding token threshold:', EXTRA_DIMENSION_PADDING_THRESHOLD
+            
+            print 'Calculating wrong tokens...'
+            totalWrongPaddings = analyzeTokens(y, knn, config, predictions)
+            
+            print 'Token encoding:', config['tokens']
+            print 'Error on paddings:', np.mean(totalWrongPaddings), '+-', np.std(totalWrongPaddings)
+    
+        if 'interactive' in config and config['interactive']:
+            while True:
+                question = raw_input('Ask a question: ')
+                
+                if not question:
+                    break
+                    
+                questionVector = embedSequence(prepareSequence(question), x.shape[1], Set(), originalEmbeddings_word2vector, originalEmbeddings_word2vector[''])
+                prediction = model.predict(np.array([questionVector]))[0]
+                print getText(prediction, knn, config)
 
 print '### FINISH! ###'
 

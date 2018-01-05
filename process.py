@@ -31,7 +31,7 @@ SHOW_PADDINGS = True
 EXTRA_DIMENSION_PADDING_THRESHOLD = 0.2
 SAMPLE_JOKES = 0
 ANALYSIS_JOKES = 0
-FAST = True
+FAST = False
 
 def plotOptions(results, title, ylabel, keys):
     plt.gca().set_color_cycle(None)
